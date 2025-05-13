@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube Video Downloader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <h2>🎬 YouTube Video Downloader</h2>
+    <input type="text" id="url" placeholder="Paste YouTube video URL">
+    <button onclick="getFormats()">Fetch Available Formats</button>
+
+    <select id="formatSelect" class="hidden"></select>
+    <button onclick="downloadVideo()" id="downloadBtn" class="hidden">Download Selected Format</button>
+    <button onclick="downloadMP3()" id="mp3Btn" class="hidden">Download as MP3</button>
+
+    <p id="message"></p>
+    <div class="footer">Powered by yt-dlp + Flask + FFmpeg</div>
+  </div>
+
+  <script>
+    async function getFormats() {
+      const url = document.getElementById('url').value.trim();
+      if (!url) return alert('Please enter a URL');
+
+      const message = document.getElementById('message');
+      const select = document.getElementById('formatSelect');
+      const downloadBtn = document.getElementById('downloadBtn');
+      const mp3Btn = document.getElementById('mp3Btn');
+      message.innerText = '🔍 Fetching available formats...';
+      select.classList.add('hidden');
+      downloadBtn.classList.add('hidden');
+      mp3Btn.classList.add('hidden');
+
+      const res = await fetch('/formats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        message.innerText = `❌ Error: ${data.error}`;
+        return;
+      }
+
+      select.innerHTML = '';
+      data.formats.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.format_id;
+        opt.textContent = `${f.resolution} - ${f.ext}`;
+        select.appendChild(opt);
+      });
+
+      message.innerText = `🎯 Select format for: ${data.title}`;
+      select.classList.remove('hidden');
+      downloadBtn.classList.remove('hidden');
+      mp3Btn.classList.remove('hidden');
+    }
+
+    async function downloadVideo() {
+      const url = document.getElementById('url').value.trim();
+      const format_id = document.getElementById('formatSelect').value;
+      const message = document.getElementById('message');
+
+      message.innerText = '⏳ Downloading... Please wait.';
+
+      const res = await fetch('/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, format_id })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        message.innerText = `❌ Error: ${data.error}`;
+        return;
+      }
+
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = "video.mp4";
+      a.click();
+      message.innerText = '✅ Download started!';
+    }
+
+    async function downloadMP3() {
+      const url = document.getElementById('url').value.trim();
+      const message = document.getElementById('message');
+      message.innerText = '🎵 Downloading MP3...';
+
+      const res = await fetch('/download_audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        message.innerText = `❌ Error: ${data.error}`;
+        return;
+      }
+
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = "audio.mp3";
+      a.click();
+      message.innerText = '✅ MP3 download started!';
+    }
+  </script>
+</body>
+</html>
