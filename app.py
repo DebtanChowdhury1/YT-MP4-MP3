@@ -4,6 +4,7 @@ import os, uuid
 
 app = Flask(__name__)
 DOWNLOAD_FOLDER = 'downloads'
+COOKIES_FILE = 'cookies.txt'
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 @app.route('/')
@@ -17,27 +18,31 @@ def list_formats():
         return jsonify({'error': 'URL is required'}), 400
 
     try:
-        ydl_opts = {'quiet': True}
+        ydl_opts = {
+            'quiet': True,
+            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None
+        }
+
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-            formats = []
-            seen_resolutions = set()
+        formats = []
+        seen = set()
 
-            for f in info['formats']:
-                if f.get('vcodec') != 'none' and f.get('acodec') == 'none':
-                    height = f.get('height')
-                    ext = f['ext']
-                    fid = f['format_id']
-                    if height and height not in seen_resolutions:
-                        label = f"{height}p ({ext})"
-                        formats.append({
-                            'format_id': fid,
-                            'label': label
-                        })
-                        seen_resolutions.add(height)
+        for f in info.get('formats', []):
+            if (f.get('vcodec') != 'none' and f.get('acodec') == 'none' and f.get('ext') == 'mp4'):
+                height = f.get('height')
+                fid = f.get('format_id')
+                if height and fid not in seen:
+                    formats.append({
+                        'format_id': fid,
+                        'label': f"{height}p - mp4"
+                    })
+                    seen.add(fid)
 
-            return jsonify({'title': info['title'], 'formats': formats})
+        formats.sort(key=lambda x: int(x['label'].split('p')[0]))
+
+        return jsonify({'title': info.get('title', 'Video'), 'formats': formats})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -59,19 +64,25 @@ def download_video():
             'format': f"{format_id}+bestaudio",
             'outtmpl': filepath,
             'merge_output_format': 'mp4',
+            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+            'quiet': True,
+            'postprocessors': [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4'
+            }],
             'postprocessor_args': [
                 '-c:v', 'copy',
-                '-c:a', 'aac',
-                '-b:a', '192k'
-            ],
-            'quiet': True
+                '-c:a', 'aac',  # Important: AAC supported by all players
+                '-b:a', '192k',
+                '-ac', '2'
+            ]
         }
 
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
         @after_this_request
-        def remove_file(response):
+        def cleanup(response):
             try:
                 os.remove(filepath)
             except Exception:
@@ -92,30 +103,26 @@ def download_audio():
         return jsonify({'error': 'Missing URL'}), 400
 
     try:
-        unique_id = str(uuid.uuid4())
-        temp_path = os.path.join(DOWNLOAD_FOLDER, unique_id)
-        final_mp3 = temp_path + ".mp3"
+        uid = str(uuid.uuid4())
+        final_mp3 = os.path.join(DOWNLOAD_FOLDER, uid + '.mp3')
 
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': temp_path + '.%(ext)s',
+            'outtmpl': final_mp3.replace('.mp3', '.%(ext)s'),
+            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+            'quiet': True,
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'keepvideo': False,
-            'quiet': True
+                'preferredquality': '192'
+            }]
         }
 
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-        if not os.path.exists(final_mp3):
-            return jsonify({'error': 'MP3 file not created.'}), 500
-
         @after_this_request
-        def remove_file(response):
+        def cleanup(response):
             try:
                 os.remove(final_mp3)
             except Exception:
