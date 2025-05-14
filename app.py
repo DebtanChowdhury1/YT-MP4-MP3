@@ -2,6 +2,15 @@ from flask import Flask, request, send_file, render_template, jsonify, after_thi
 from yt_dlp import YoutubeDL
 import os, uuid
 
+import base64
+
+# Decode base64 cookies.txt from environment variable and write to file
+cookie_b64 = os.environ.get("COOKIE_B64")
+if cookie_b64:
+    with open("cookies.txt", "wb") as f:
+        f.write(base64.b64decode(cookie_b64))
+
+
 app = Flask(__name__)
 DOWNLOAD_FOLDER = 'downloads'
 COOKIES_FILE = 'cookies.txt'
